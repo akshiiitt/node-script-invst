@@ -12,14 +12,10 @@ set -e  # Exit on first error
 WG_DIR="/etc/wireguard"
 WG_CONF="$WG_DIR/wg0.conf"
 WG_INTERFACE="wg0"
-WG_NETWORK_V4="10.8.0.1/24"
-WG_NETWORK_V6="fd00::1/64"
-WG_NETWORK="${WG_NETWORK_V4},${WG_NETWORK_V6}"
+WG_NETWORK="10.8.0.1/24"
 WG_PORT="51820"
 PRIVATE_KEY=""
-DNS_V4="1.1.1.1"
-DNS_V6="2606:4700:4700::1111"
-DNS="${DNS_V4} ${DNS_V6}"
+DNS="1.1.1.1"
 UNINSTALL=false
 
 # Colors for output
@@ -73,13 +69,7 @@ create_wg_config() {
     # Get the primary network interface (egress)
     PRIMARY_IFACE=$(ip route get 1.1.1.1 2>/dev/null | awk '/ dev / {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')
     if [ -z "$PRIMARY_IFACE" ]; then
-        PRIMARY_IFACE=$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '/ dev / {for(i=1;i<=NF;i++) if($i=="dev") print $(i+1); exit}')
-    fi
-    if [ -z "$PRIMARY_IFACE" ]; then
         PRIMARY_IFACE=$(ip route | awk '/^default/ {print $5; exit}')
-    fi
-    if [ -z "$PRIMARY_IFACE" ]; then
-        PRIMARY_IFACE=$(ip -6 route | awk '/^default/ {print $5; exit}')
     fi
     
     # Create new config
@@ -93,30 +83,27 @@ SaveConfig = false
 PostUp = resolvectl dns %i ${DNS} || true
 PostDown = resolvectl revert %i || true
 PostUp = iptables -I INPUT -p udp --dport 51820 -j ACCEPT || true
-PostUp = ip6tables -I INPUT -p udp --dport 51820 -j ACCEPT || true
 PostUp = iptables -I FORWARD -i wg0 -o ${PRIMARY_IFACE} -j ACCEPT || true
 PostUp = iptables -I FORWARD -i ${PRIMARY_IFACE} -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT || true
 PostUp = iptables -t nat -A POSTROUTING -o ${PRIMARY_IFACE} -j MASQUERADE || true
 PostUp = ip6tables -I FORWARD -i wg0 -o ${PRIMARY_IFACE} -j ACCEPT || true
 PostUp = ip6tables -I FORWARD -i ${PRIMARY_IFACE} -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT || true
 PostUp = ip6tables -t nat -A POSTROUTING -o ${PRIMARY_IFACE} -j MASQUERADE || true
-
-# nftables fallback (IPv4 & IPv6)
-PostUp = nft list tables >/dev/null 2>&1 && nft add table inet wg-nat || true
-PostUp = nft list chains inet wg-nat | grep -q POSTROUTING || nft add chain inet wg-nat POSTROUTING '{ type nat hook postrouting priority 100; }' || true
-PostUp = nft add rule inet wg-nat POSTROUTING oifname "${PRIMARY_IFACE}" masquerade || true
+# nftables fallback
+PostUp = nft list tables >/dev/null 2>&1 && nft add table ip wg-nat || true
+PostUp = nft list chains ip wg-nat | grep -q POSTROUTING || nft add chain ip wg-nat POSTROUTING '{ type nat hook postrouting priority 100; }' || true
+PostUp = nft add rule ip wg-nat POSTROUTING oifname "${PRIMARY_IFACE}" masquerade || true
 
 PostDown = iptables -D INPUT -p udp --dport 51820 -j ACCEPT || true
-PostDown = ip6tables -D INPUT -p udp --dport 51820 -j ACCEPT || true
 PostDown = iptables -D FORWARD -i wg0 -o ${PRIMARY_IFACE} -j ACCEPT || true
 PostDown = iptables -D FORWARD -i ${PRIMARY_IFACE} -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT || true
 PostDown = iptables -t nat -D POSTROUTING -o ${PRIMARY_IFACE} -j MASQUERADE || true
 PostDown = ip6tables -D FORWARD -i wg0 -o ${PRIMARY_IFACE} -j ACCEPT || true
 PostDown = ip6tables -D FORWARD -i ${PRIMARY_IFACE} -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT || true
 PostDown = ip6tables -t nat -D POSTROUTING -o ${PRIMARY_IFACE} -j MASQUERADE || true
-PostDown = nft delete rule inet wg-nat POSTROUTING oifname "${PRIMARY_IFACE}" masquerade 2>/dev/null || true
-PostDown = nft list chains inet wg-nat >/dev/null 2>&1 && nft flush chain inet wg-nat POSTROUTING 2>/dev/null || true
-PostDown = nft list tables inet | grep -q wg-nat && nft delete table inet wg-nat 2>/dev/null || true
+PostDown = nft delete rule ip wg-nat POSTROUTING oifname "${PRIMARY_IFACE}" masquerade 2>/dev/null || true
+PostDown = nft list chains ip wg-nat >/dev/null 2>&1 && nft flush chain ip wg-nat POSTROUTING 2>/dev/null || true
+PostDown = nft list tables ip | grep -q wg-nat && nft delete table ip wg-nat 2>/dev/null || true
 EOL
 
     chmod 600 "$WG_CONF"
@@ -169,38 +156,23 @@ start_wg_service() {
         fi
     elif command -v resolvconf >/dev/null 2>&1; then
         echo -e "${YELLOW}Setting DNS via resolvconf to ${DNS}${NC}"
-        for d in ${DNS}; do echo "nameserver $d"; done | sudo resolvconf -a ${WG_INTERFACE}.inet || true
+        echo "nameserver ${DNS}" | sudo resolvconf -a ${WG_INTERFACE}.inet || true
     else
         echo -e "${YELLOW}No resolvectl or resolvconf found; consider installing one to manage DNS.${NC}"
     fi
 
     # Verify interface IP; if missing, assign the configured address
     echo -e "${YELLOW}Verifying IP address on ${WG_INTERFACE}...${NC}"
-    # Split WG_NETWORK into parts and check each
-    IFS=',' read -ra ADDR_PARTS <<< "$WG_NETWORK"
-    for part in "${ADDR_PARTS[@]}"; do
-        part=$(echo "$part" | xargs)
-        if is_ipv6 "$part"; then
-            if ! ip -6 addr show dev ${WG_INTERFACE} | grep -q "${part%%/*}"; then
-                echo -e "${YELLOW}Assigning IPv6 ${part} to ${WG_INTERFACE}${NC}"
-                sudo ip -6 addr add ${part} dev ${WG_INTERFACE} || true
-            fi
-        else
-            if ! ip -4 addr show dev ${WG_INTERFACE} | grep -q "${part%%/*}"; then
-                echo -e "${YELLOW}Assigning IPv4 ${part} to ${WG_INTERFACE}${NC}"
-                sudo ip -4 addr add ${part} dev ${WG_INTERFACE} || true
-            fi
-        fi
-    done
+    if ! ip -4 addr show dev ${WG_INTERFACE} | grep -q "${WG_NETWORK%%/*}"; then
+        echo -e "${YELLOW}Assigning IP ${WG_NETWORK} to ${WG_INTERFACE}${NC}"
+        sudo ip addr add ${WG_NETWORK} dev ${WG_INTERFACE} || true
+    fi
 
     # Ensure wg0.conf contains Address under [Interface]
     if ! grep -q "^Address\s*=\s*" "$WG_CONF"; then
         sudo sed -i "/^\[Interface\]/a Address = ${WG_NETWORK}" "$WG_CONF"
     fi
 }
-
-# Check if an IP string is IPv6 (contains colons)
-is_ipv6() { [[ "$1" == *:* ]]; }
 
 # Show usage information
 show_usage() {
@@ -213,12 +185,10 @@ show_usage() {
 }
 
 enable_ip_forward() {
-    echo -e "${YELLOW}Enabling IPv4 and IPv6 forwarding...${NC}"
+    echo -e "${YELLOW}Enabling IPv4 forwarding...${NC}"
     sudo sysctl -w net.ipv4.ip_forward=1
-    sudo sysctl -w net.ipv6.conf.all.forwarding=1
     # Persist across reboots for cloud instances
     echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-wireguard.conf >/dev/null
-    echo "net.ipv6.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.d/99-wireguard.conf >/dev/null
     sudo sysctl --system >/dev/null 2>&1 || true
 }
 
@@ -290,9 +260,9 @@ uninstall_wireguard() {
     sudo ip6tables -t nat -D POSTROUTING -o ${CLEAN_IFACE} -j MASQUERADE 2>/dev/null || true
 
     # nftables cleanup
-    nft delete rule inet wg-nat POSTROUTING oifname "${CLEAN_IFACE}" masquerade 2>/dev/null || true
-    nft list chains inet wg-nat >/dev/null 2>&1 && nft flush chain inet wg-nat POSTROUTING 2>/dev/null || true
-    nft list tables inet | grep -q wg-nat && nft delete table inet wg-nat 2>/dev/null || true
+    nft delete rule ip wg-nat POSTROUTING oifname "${CLEAN_IFACE}" masquerade 2>/dev/null || true
+    nft list chains ip wg-nat >/dev/null 2>&1 && nft flush chain ip wg-nat POSTROUTING 2>/dev/null || true
+    nft list tables ip | grep -q wg-nat && nft delete table ip wg-nat 2>/dev/null || true
 
     # Stop and disable service
     sudo systemctl stop wg-quick@${WG_INTERFACE} 2>/dev/null || true
