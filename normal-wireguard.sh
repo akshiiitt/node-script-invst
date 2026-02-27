@@ -302,13 +302,13 @@ uninstall_wireguard() {
 
 # Main execution
 main() {
-    wireguard_install
+    check_root
     parse_arguments "$@"
     if [ "$UNINSTALL" = true ]; then
         uninstall_wireguard
         exit 0
     fi
-    check_root
+    wireguard_install
     enable_ip_forward
     handle_keys
     create_wg_config

@@ -39,12 +39,7 @@ update_wireguard_config_from_wg() {
   if sudo test -f "$WG_CONF"; then
     WG_ADDRESS=$(sudo grep -m1 '^Address' "$WG_CONF" | sed -E 's/.*[:=][[:space:]]*//')
     WG_LISTENPORT=$(sudo grep -m1 '^ListenPort' "$WG_CONF" | sed -E 's/.*[:=][[:space:]]*//')
-    WG_PRIVATEKEY=$(sudo grep -m1 '^PrivateKey' "$WG_CONF" | awk -F '=' '{print $2}')
-    PRIVATE_KEY=$(echo "$WG_PRIVATEKEY" | xargs)
-    # Ensure WireGuard private key ends with '=' padding when needed
-    if [[ "$PRIVATE_KEY" != *= ]]; then
-      PRIVATE_KEY="${PRIVATE_KEY}="
-    fi
+    PRIVATE_KEY=$(sudo grep -m1 '^PrivateKey' "$WG_CONF" | sed -E 's/^PrivateKey[[:space:]]*=[[:space:]]*//')
     echo "WireGuard Config found at $WG_CONF:"
     echo "- Address: $WG_ADDRESS"
     echo "- ListenPort: $WG_LISTENPORT"
@@ -192,8 +187,8 @@ fi
   WG_INIT_PORT="51820"
   WG_INIT_KEY=""
   if sudo test -f "$WG_CONF"; then
-    WG_INIT_PORT=$(sudo grep -m1 '^ListenPort' "$WG_CONF" | sed -E 's/.*[:=][[:space:]]*//' || echo "51820")
-    WG_INIT_KEY=$(sudo grep -m1 '^PrivateKey' "$WG_CONF" | awk -F '=' '{print $2}' | xargs || true)
+    WG_INIT_PORT=$(sudo grep -m1 '^ListenPort' "$WG_CONF" | sed -E 's/^ListenPort[[:space:]]*=[[:space:]]*//' || echo "51820")
+    WG_INIT_KEY=$(sudo grep -m1 '^PrivateKey' "$WG_CONF" | sed -E 's/^PrivateKey[[:space:]]*=[[:space:]]*//' | xargs || true)
   fi
 
   echo "Initializing config..."
