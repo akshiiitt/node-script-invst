@@ -104,7 +104,7 @@ cmd_init() {
         --home "$NODE_DIR" \
         --node.moniker "$moniker" \
         --node.api-port "$API_PORT" \
-        --node.remote-addrs "${pub_ip}:${WG_PORT}" \
+        --node.remote-addrs "${pub_ip}" \
         --node.service-type "wireguard" \
         --node.gigabyte-prices "$gigabyte_prices" \
         --node.hourly-prices "$hourly_prices" \
@@ -174,9 +174,9 @@ cmd_start() {
     local iface=$(detect_egress_interface)
 
     log "Syncing configuration..."
-    # Update main config (IP:Port)
-    sed -i -E "s/^remote-addrs = .*/remote-addrs = [\"${pub_ip}:${WG_PORT}\"]/" "${NODE_DIR}/config.toml"
-    sed -i -E "s/^remote_addrs = .*/remote_addrs = [\"${pub_ip}:${WG_PORT}\"]/" "${NODE_DIR}/config.toml"
+    # Update main config (IP only)
+    sed -i -E "s/^remote-addrs = .*/remote-addrs = [\"${pub_ip}\"]/" "${NODE_DIR}/config.toml"
+    sed -i -E "s/^remote_addrs = .*/remote_addrs = [\"${pub_ip}\"]/" "${NODE_DIR}/config.toml"
 
     # Update WG service config (Port and Interface)
     if [[ -f "${NODE_DIR}/wireguard/config.toml" ]]; then
