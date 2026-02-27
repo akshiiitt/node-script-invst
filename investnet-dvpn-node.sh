@@ -82,21 +82,24 @@ write_systemd_unit() {
   fi
   # Ensure absolute path for systemd (relative paths don't work)
   BIN_PATH=$(realpath "$BIN_PATH")
-  # Emit a minimal, resilient unit file to run the node as the current user
-  sudo bash -c "cat > ${SYSTEMD_UNIT}" <<EOF
+    # Emit a minimal, resilient unit file to run the node as root
+    # (required: node binary calls 'wg' and manages network interfaces which need CAP_NET_ADMIN)
+    local HOME_DIR
+    HOME_DIR=$(eval echo "~$(whoami)")
+    sudo bash -c "cat > ${SYSTEMD_UNIT}" <<EOF
 [Unit]
 Description=InvestNet dVPN Node
 Wants=network-online.target
 After=network-online.target
 
 [Service]
-User=$(whoami)
-Group=$(whoami)
+User=root
 Type=simple
 ExecStart=${BIN_PATH} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND} --keyring.name ${KEYRING_NAME}
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
+Environment=HOME=${HOME_DIR}
 Environment=DAEMON_NAME=${BINARY}
 Environment=DAEMON_HOME=${NODE_DIR}
 
