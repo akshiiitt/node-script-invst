@@ -66,8 +66,8 @@ download_binary() {
   log "Successfully downloaded and prepared ${BINARY}"
 }
 
-CHAIN_RPC="${CHAIN_RPC:-http://localhost:26657}"
-CHAIN_ID="${CHAIN_ID:-investnet_7032-1}"
+CHAIN_RPC="${CHAIN_RPC:-https://tendermint.devnet.invest.net:443}"
+CHAIN_ID="${CHAIN_ID:-investnet_7031-1}"
 KEYRING_BACKEND="test"
 KEYRING_NAME="investnet"
 WG_CONF="/etc/wireguard/wg0.conf"
