@@ -10,6 +10,9 @@ set -Eeou pipefail
 NODE_DIR="${HOME}/.investnet-dvpnx"
 BINARY_NAME="investnet-dvpnx"
 BINARY_PATH="/usr/local/bin/${BINARY_NAME}"
+BINARY_VERSION="1.0.1"
+BINARY_TAG="dvpn-node-local-alpha"
+BINARY_SHA256="3f15437e95f8643103d7a5b8f73a122ee71d1a6d3015b914910c629e633c0a67"
 SYSTEMD_UNIT="/etc/systemd/system/investnet-dvpn-node.service"
 API_PORT=18133
 WG_PORT=51820
@@ -66,9 +69,18 @@ cmd_init() {
 
     # 1. Ensure Binary exists
     if ! command -v "$BINARY_NAME" >/dev/null 2>&1 && [[ ! -f "$BINARY_PATH" ]]; then
-        log "Downloading binary..."
-        local download_url="https://github.com/akshiiitt/node-local-binary/releases/latest/download/investnet-dvpnx"
+        log "Downloading binary v${BINARY_VERSION} (tag: ${BINARY_TAG})..."
+        local download_url="https://github.com/akshiiitt/node-local-binary/releases/download/${BINARY_TAG}/${BINARY_NAME}"
         sudo curl -L "$download_url" -o "$BINARY_PATH"
+        log "Verifying sha256 checksum..."
+        local actual_sha256
+        actual_sha256=$(sha256sum "$BINARY_PATH" | awk '{print $1}')
+        if [[ "$actual_sha256" != "$BINARY_SHA256" ]]; then
+            err "Checksum mismatch! Expected: ${BINARY_SHA256}, Got: ${actual_sha256}"
+            sudo rm -f "$BINARY_PATH"
+            exit 1
+        fi
+        log "Checksum verified. ✓"
         sudo chmod +x "$BINARY_PATH"
     fi
     
