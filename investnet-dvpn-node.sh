@@ -11,7 +11,7 @@ BINARY="${BINARY:-investnet-dvpnx}"  # Default binary name; override by setting 
 API_PORT=18133
 
 PUBLIC_IP=$(curl -fsSL https://ifconfig.me || true)
-CHAIN_RPC="https://tendermint.devnet.invest.net"
+CHAIN_RPC="https://tendermint.devnet.invest.net:443"
 CHAIN_ID="investnet_7031-1"
 KEYRING_BACKEND="test"
 KEYRING_NAME="investnet"
@@ -217,11 +217,11 @@ fi
     --tx.gas-prices "1000000000invst"
   )
 
-  # Add WireGuard specific init flags if we have keys/ports
-  if [[ -n "$WG_INIT_KEY" ]]; then
-     INIT_CMD+=(--wireguard.private-key "${WG_INIT_KEY}")
-     INIT_CMD+=(--wireguard.port "${WG_INIT_PORT}")
-  fi
+  # Removed: WireGuard flags are not supported in 'init' and will be synced in 'start'
+  # if [[ -n "$WG_INIT_KEY" ]]; then
+  #    INIT_CMD+=(--wireguard.private-key "${WG_INIT_KEY}")
+  #    INIT_CMD+=(--wireguard.port "${WG_INIT_PORT}")
+  # fi
 
   "${INIT_CMD[@]}"
 
