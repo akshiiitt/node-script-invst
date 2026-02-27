@@ -67,7 +67,7 @@ cmd_init() {
     # 1. Ensure Binary exists
     if ! command -v "$BINARY_NAME" >/dev/null 2>&1 && [[ ! -f "$BINARY_PATH" ]]; then
         log "Downloading binary..."
-        local download_url="https://github.com/akshiiitt/node-local-binary/releases/download/1.0.0/investnet-dvpnx-linux-amd64"
+        local download_url="https://github.com/akshiiitt/node-local-binary/releases/latest/download/investnet-dvpnx"
         sudo curl -L "$download_url" -o "$BINARY_PATH"
         sudo chmod +x "$BINARY_PATH"
     fi
