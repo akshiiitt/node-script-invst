@@ -254,8 +254,15 @@ fi
 
 # Configure and start the node via systemd, then report basic health info
 function cmd_start {
-    # Proactively bring down wg0 to avoid stale state (ignore errors)
-    wg-quick down wg0 2>/dev/null || true
+    # Proactively stop and disable wg-quick service to prevent conflicts
+    # Since node manages wg0 itself, the system service must be off.
+    log "Stopping system wg-quick service to prevent conflicts..."
+    sudo systemctl stop wg-quick@wg0 2>/dev/null || true
+    sudo systemctl disable wg-quick@wg0 2>/dev/null || true
+    
+    # Proactively bring down wg0 interface if it exists (ignore errors)
+    sudo wg-quick down wg0 2>/dev/null || true
+    sudo ip link del wg0 2>/dev/null || true
     if [[ ! -f "${NODE_DIR}/config.toml" ]]; then
       err "Config file not found at ${NODE_DIR}/config.toml. Please run init first."; exit 1
     fi
