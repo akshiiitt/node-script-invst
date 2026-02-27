@@ -104,7 +104,7 @@ cmd_init() {
         --home "$NODE_DIR" \
         --node.moniker "$moniker" \
         --node.api-port "$API_PORT" \
-        --node.remote-addrs "$pub_ip" \
+        --node.remote-addrs "${pub_ip}:${WG_PORT}" \
         --node.service-type "wireguard" \
         --node.gigabyte-prices "$gigabyte_prices" \
         --node.hourly-prices "$hourly_prices" \
@@ -174,9 +174,9 @@ cmd_start() {
     local iface=$(detect_egress_interface)
 
     log "Syncing configuration..."
-    # Update main config (Raw IP)
-    sed -i -E "s/^remote-addrs = .*/remote-addrs = [\"${pub_ip}\"]/" "${NODE_DIR}/config.toml"
-    sed -i -E "s/^remote_addrs = .*/remote_addrs = [\"${pub_ip}\"]/" "${NODE_DIR}/config.toml"
+    # Update main config (IP:Port)
+    sed -i -E "s/^remote-addrs = .*/remote-addrs = [\"${pub_ip}:${WG_PORT}\"]/" "${NODE_DIR}/config.toml"
+    sed -i -E "s/^remote_addrs = .*/remote_addrs = [\"${pub_ip}:${WG_PORT}\"]/" "${NODE_DIR}/config.toml"
 
     # Update WG service config (Port and Interface)
     if [[ -f "${NODE_DIR}/wireguard/config.toml" ]]; then
@@ -223,8 +223,16 @@ cmd_status() {
     sudo systemctl status investnet-dvpn-node.service --no-pager || true
     echo "--- Recent Logs ---"
     sudo journalctl -u investnet-dvpn-node.service -n 50 --no-pager
+    
+    # Wait a bit for the interface if it's missing (up to 5s)
     echo "--- Interface Status ---"
-    sudo ip addr show wg0 2>/dev/null || echo "Interface 'wg0' not found."
+    local count=0
+    while ! ip addr show wg0 >/dev/null 2>&1 && [ $count -lt 5 ]; do
+        sleep 1
+        ((count++))
+    done
+    sudo ip addr show wg0 2>/dev/null || echo "Interface 'wg0' not found (may still be initializing)."
+    
     echo "--- WireGuard Status ---"
     sudo wg show || echo "WireGuard is not active or no interfaces found."
 }
