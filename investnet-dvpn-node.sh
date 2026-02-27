@@ -98,7 +98,7 @@ After=network-online.target
 User=$(whoami)
 Group=$(whoami)
 Type=simple
-ExecStart=${BIN_PATH} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND}
+ExecStart=${BIN_PATH} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND} --keyring.name ${KEYRING_NAME}
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -276,7 +276,7 @@ function cmd_start {
   echo "Clean IP: ${CLEAN_IP}"
   
   echo "Starting node with command:"
-  echo "${BINARY} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND}"
+    echo "${BINARY} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND} --keyring.name ${KEYRING_NAME}"
 
     # Ensure an up-to-date systemd unit and enable it
     write_systemd_unit

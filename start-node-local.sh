@@ -17,6 +17,7 @@ err() { echo "[ERROR] $*" >&2; }
 require() { command -v "$1" >/dev/null 2>&1 || { err "Missing required command: $1"; exit 1; }; }
 
 # Auto-download binary from GitHub Releases
+
 download_binary() {
   if command -v "${BINARY}" &> /dev/null || [[ -x "./${BINARY}" ]]; then
     if [[ -x "./${BINARY}" ]] && ! command -v "${BINARY}" &> /dev/null; then
@@ -177,7 +178,7 @@ write_systemd_unit() {
   fi
   # Ensure absolute path for systemd (relative paths don't work)
   BIN_PATH=$(realpath "$BIN_PATH")
-  # Emit a minimal, resilient unit file to run the node as the current user
+  # Emit a minimal, resilient unit file to run the node as root (needed for WG interface management)
   sudo bash -c "cat > ${SYSTEMD_UNIT}" <<EOF
 [Unit]
 Description=InvestNet dVPN Node
@@ -185,8 +186,8 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-User=$(whoami)
-Group=$(id -gn)  
+User=root
+Group=root
 Type=simple
 ExecStart=${BIN_PATH} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND}
 Restart=always
@@ -302,12 +303,12 @@ function cmd_init {
     --keyring.name "${KEYRING_NAME}"
 
   # Keep CLI transactions consistent by setting from_name in config.toml
-  if [[ -f "${NODE_DIR}/config.toml" ]]; then
+  if [[ -f "${CONFIG_TOML}" ]]; then
     # Use sed to update the from_name field
-    if sed -i "s/^from_name = .*/from_name = \"${ACCOUNT_NAME}\"/" "${NODE_DIR}/config.toml"; then
-      echo "Updated from_name to '${ACCOUNT_NAME}' in config.toml"
+    if sed -i "s/^from_name = .*/from_name = \"${ACCOUNT_NAME}\"/" "${CONFIG_TOML}"; then
+      echo "Updated from_name to '${ACCOUNT_NAME}' in ${CONFIG_TOML}"
     else
-      echo "Warning: Failed to update from_name in config.toml"
+      echo "Warning: Failed to update from_name in ${CONFIG_TOML}"
     fi
   fi
 
@@ -326,58 +327,58 @@ function cmd_init {
 function cmd_start {
     download_binary
     resolve_public_ip
-    # Proactively bring down wg0 to avoid stale state (ignore errors)
-    sudo wg-quick down wg0 || true
+    
     if [[ ! -f "${NODE_DIR}/config.toml" ]]; then
       err "Config file not found at ${NODE_DIR}/config.toml"; exit 1
     fi
 
-    # Sync [wireguard] section in config.toml from /etc/wireguard/wg0.conf
-    update_wireguard_config_from_wg
+    # 1. Clean up any existing stale interface ONCE before starting
+    sudo wg-quick down wg0 2>/dev/null || true
+    sudo ip link delete wg0 2>/dev/null || true
 
-    # Read dynamic settings from config.toml; fail fast if missing
+    # 2. Read dynamic settings from config.toml; fail fast if missing
     API_PORT_CFG=$(grep '^api_port = ' "${NODE_DIR}/config.toml" | cut -d'"' -f2 || true)
     NODE_TYPE_CFG=$(grep '^service_type = ' "${NODE_DIR}/config.toml" | cut -d'"' -f2 || true)
     if [[ -z "${API_PORT_CFG}" || -z "${NODE_TYPE_CFG}" ]]; then
       err "Could not read required configuration. Check config.toml format."; exit 1
     fi
 
-  # Remove any existing https:// from the IP address
-  CLEAN_IP=${PUBLIC_IP#https://}
-  CLEAN_IP=${CLEAN_IP#http://}
-  echo "Clean IP: ${CLEAN_IP}"
-  
-  echo "Starting node with command:"
-  echo "${BINARY} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND}"
+    # Remove any existing https:// from the IP address
+    CLEAN_IP=${PUBLIC_IP#https://}
+    CLEAN_IP=${CLEAN_IP#http://}
+    echo "Clean IP: ${CLEAN_IP}"
+    
+    echo "Starting node with command:"
+    echo "${BINARY} start --home ${NODE_DIR} --keyring.backend ${KEYRING_BACKEND}"
 
-    # Ensure an up-to-date systemd unit and enable it
+    # 3. Ensure an up-to-date systemd unit and start it
     write_systemd_unit
     sudo systemctl daemon-reload
     sudo systemctl enable investnet-dvpn-node.service 
     sudo systemctl start investnet-dvpn-node.service 
 
-      log "Waiting 30 seconds for node to initialize..."
-      sleep 30
-      # Best-effort fetch of node address from local API
-      # Pick one IP from the comma-separated list for health check (prefer IPv4 if present)
-      local check_ip
-      IFS=',' read -ra IPS <<< "$PUBLIC_IP"
-      check_ip="${IPS[0]}"
-      for ip in "${IPS[@]}"; do
-        if ! is_ipv6 "$ip"; then
-          check_ip="$ip"
-          break
-        fi
-      done
+    log "Waiting 30 seconds for binary to initialize WireGuard..."
+    sleep 30
 
-      if [[ -n "$check_ip" ]]; then
-        # Wrap IPv6 in brackets for URL
-        if is_ipv6 "$check_ip"; then
-          API_HOST="[${check_ip}]"
-        else
-          API_HOST="$check_ip"
-        fi
-        NODE_ADDR=$(curl -sk "https://$API_HOST:$API_PORT_CFG" | jq -r '.result.addr' || true)
+    # Best-effort fetch of node address from local API
+    local check_ip
+    IFS=',' read -ra IPS <<< "$PUBLIC_IP"
+    check_ip="${IPS[0]}"
+    for ip in "${IPS[@]}"; do
+      if ! is_ipv6 "$ip"; then
+        check_ip="$ip"
+        break
+      fi
+    done
+
+    if [[ -n "$check_ip" ]]; then
+      # Wrap IPv6 in brackets for URL
+      if is_ipv6 "$check_ip"; then
+        API_HOST="[${check_ip}]"
+      else
+        API_HOST="$check_ip"
+      fi
+      NODE_ADDR=$(curl -sk "https://$API_HOST:$API_PORT_CFG" | jq -r '.result.addr' || true)
       if [[ -n "$NODE_ADDR" && "$NODE_ADDR" != "null" ]]; then
         log "Node address: $NODE_ADDR"
       else
