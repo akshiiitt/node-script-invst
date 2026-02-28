@@ -228,7 +228,7 @@ parse_arguments() {
     done
 }
 
-# Uninstall WireGuard and cleanup
+# Uninstall WireGuard
 uninstall_wireguard() {
     echo -e "${YELLOW}Uninstalling WireGuard and cleaning up...${NC}"
     # Bring interface down if it exists (will also run PostDown rules)
